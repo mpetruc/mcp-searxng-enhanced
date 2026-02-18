@@ -21,6 +21,9 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field, validator, ValidationError, root_validator
 import trafilatura
 from dateutil import parser as date_parser
+from utils.header_builder import HeaderBuilder
+from utils.fetch_strategy import FetchStrategy
+from utils.robots_checker import RobotsChecker
 from cachetools import TTLCache
 from zoneinfo import ZoneInfo
 import filetype
@@ -374,6 +377,9 @@ class Tools:
     class Valves(BaseModel):
         SEARXNG_ENGINE_API_BASE_URL: str = Field(default="http://host.docker.internal:8080/search")
         IGNORED_WEBSITES: str = Field(default="")
+        DEFAULT_USER_AGENT: str = Field(default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+        USER_AGENT_POOL: List[str] = Field(default_factory=lambda: ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Safari/605.1.15", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36"])
+        EXTRA_HEADERS: Dict[str, str] = Field(default_factory=dict)
         RETURNED_SCRAPPED_PAGES_NO: int = Field(default=3, ge=1, le=20)
         SCRAPPED_PAGES_NO: int = Field(default=5, ge=1, le=30)
         PAGE_CONTENT_WORDS_LIMIT: int = Field(default=5000, ge=50, le=20000)
@@ -391,6 +397,11 @@ class Tools:
         RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(default=10, ge=1, le=60)
         RATE_LIMIT_TIMEOUT_SECONDS: int = Field(default=60, ge=10, le=3600)
         CACHE_MAX_AGE_MINUTES: int = Field(default=30, ge=1, le=1440)
+        ENABLE_ADVANCED_FETCH: bool = Field(default=True)
+        FETCH_RETRY_COUNT: int = Field(default=2, ge=0, le=5)
+        PROXY_LIST: List[str] = Field(default_factory=list)
+        BROWSER_TIMEOUT_SECONDS: int = Field(default=30, ge=5, le=120)
+        RESPECT_ROBOTS_TXT: bool = Field(default=True)
         
         @validator('SEARXNG_ENGINE_API_BASE_URL')
         def validate_searxng_url(cls, v):
@@ -501,12 +512,23 @@ class Tools:
             ttl=timedelta(minutes=self.valves.CACHE_TTL_MINUTES).total_seconds()
         )
         logger.info(f"Website cache initialized: maxsize={self.valves.CACHE_MAXSIZE}, ttl={self.valves.CACHE_TTL_MINUTES} minutes")
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-        }
+        # Initialize request helpers
+
+        self.header_builder = HeaderBuilder(self.valves)
+
+        # Create client without default headers; headers supplied per request
+
+        self.client = httpx.AsyncClient(follow_redirects=True, verify=False)
+
+        self.fetch_strategy = FetchStrategy(self.valves, self.client)
+
+        self.robots_checker = RobotsChecker(self.valves)
+
+        # Preserve existing functions and emitter
+
         self.functions = HelperFunctions()
+
         self.emitter = MCPEventEmitter(send_notification_func)
-        self.client = httpx.AsyncClient(headers=self.headers, follow_redirects=True)
 
     # --- Tool Methods ---
     async def search_web(self, query: str, engines: Optional[str] = None, category: Optional[str] = "general", safesearch: Optional[str] = None, time_range: Optional[str] = None) -> str:
@@ -743,9 +765,16 @@ class Tools:
         soup = None
         html_content = ""
         try:
-            url_to_fetch = HelperFunctions._modify_reddit_url(url)
-            response_site = await self.client.get(url_to_fetch, timeout=120)
+            # Check robots.txt if enabled
+            allowed = await self.robots_checker.is_allowed(url, self.header_builder.get_headers().get('User-Agent', ''))
+            if not allowed:
+                await self.emitter.emit('🚫 Robots.txt blocked', step_number=2)
+                error_msg = f"Access to {url} disallowed by robots.txt"
+                return {"url": url, "error": error_msg, "date_accessed": datetime.now(timezone.utc).isoformat(), "soup": None}
+            # Use fetch strategy with retries and optional browser fallback
+            response_site = await self.fetch_strategy.fetch(url)
             response_site.raise_for_status()
+            html_content = response_site.text
             html_content = response_site.text
 
             #TODO: Refactor this into a separate function in order no to duplicate code used in search_web

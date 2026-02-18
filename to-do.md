@@ -1,0 +1,14 @@
+- [ ] Add new config fields to valves (DEFAULT_USER_AGENT, USER_AGENT_POOL, EXTRA_HEADERS, FETCH_RETRY_COUNT, PROXY_LIST, BROWSER_TIMEOUT_SECONDS, RESPECT_ROBOTS_TXT, ENABLE_ADVANCED_FETCH).
+- [ ] Create utils/header_builder.py with HeaderBuilder class.
+- [ ] Create utils/fetch_strategy.py implementing FetchStrategy with retries, proxy, and Playwright fallback.
+- [ ] Create utils/robots_checker.py using reppy to fetch and cache robots.txt.
+- [ ] Update _get_website_content_cached in mcp_server.py to use FetchStrategy and HeaderBuilder, integrate RobotsChecker.
+- [ ] Add new event types (fetch_attempt, robots_blocked, browser_fallback, fetch_success) to event emitter.
+- [ ] Write unit tests for HeaderBuilder (random selection, header merging).
+- [ ] Write unit tests for RobotsChecker (allowed/blocked scenarios).
+- [ ] Write unit tests for FetchStrategy retry logic (mock httpx responses, proxy usage).
+- [ ] Write integration tests for get_website against sites requiring different headers or JS rendering.
+- [ ] Update requirements.txt with new dependencies (playwright, reppy).
+- [ ] Run all tests, ensure they pass.
+- [ ] Update documentation (get_website_architecture.md) to reflect new components.
+- [ ] Implement feature flag ENABLE_ADVANCED_FETCH and canary rollout logic.

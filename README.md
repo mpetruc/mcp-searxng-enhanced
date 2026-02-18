@@ -11,6 +11,7 @@ A Model Context Protocol (MCP) server for category-aware web search, website scr
 - 📜 Intial PDF reading support with a conversion to Markdown using [PyMuPDF/PyMuPDF4LLM](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/index.html#pymupdf4llm)
 - 💾 In-memory caching with automatic freshness validation
 - 🚦 Domain-based rate limiting to prevent service abuse
+- 🛡️ Bot‑challenge detection with Playwright fallback, User‑Agent rotation, and optional proxy support
 - 🕒 Timezone-aware date/time tool
 - ⚠️ Robust error handling with custom exception types
 - 🐳 Dockerized and configurable via environment variables
